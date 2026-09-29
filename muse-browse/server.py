@@ -11,6 +11,8 @@ Endpoints (all need header  Authorization: Bearer <token>  except /health):
   POST /search      {"query": "...", "max_results": 8}
   POST /fetch       {"url": "https://...", "max_chars": 20000, "links": false}
   POST /screenshot  {"url": "https://..."}   -> {"png_base64": "..."}
+  POST /amazon      {"query": "...", "max_results": 10, "domain": "amazon.com"}
+                    -> product titles, prices, ratings and clean /dp/ links
 """
 import base64, json, os, re, secrets, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -98,6 +100,33 @@ class Browser:
         finally:
             page.close()
 
+    def amazon(self, query, max_results=10, domain="amazon.com"):
+        if not re.fullmatch(r"(www\.)?amazon\.[a-z.]{2,6}", domain):
+            raise BadRequest("domain must be an amazon domain")
+        page = self.open(f"https://www.{domain.removeprefix('www.')}/s?k=" + quote_plus(query))
+        try:
+            if page.query_selector("form[action*='validateCaptcha']"):
+                raise BadRequest("Amazon is showing a captcha: solve it once in the Chrome window, then retry")
+            items = page.eval_on_selector_all(
+                "div[data-component-type='s-search-result'][data-asin]",
+                """els => els.filter(e => e.dataset.asin).map(e => {
+                    const t = e.querySelector('h2');
+                    const p = e.querySelector('.a-price .a-offscreen');
+                    const r = e.querySelector('.a-icon-alt');
+                    return {asin: e.dataset.asin,
+                            title: t ? t.innerText.trim() : '',
+                            price: p ? p.textContent.trim() : null,
+                            rating: r ? r.textContent.trim() : null,
+                            sponsored: /sponsored/i.test(e.innerText.slice(0, 200))};
+                })""",
+            )
+            base = f"https://www.{domain.removeprefix('www.')}"
+            for i in items:
+                i["link"] = f"{base}/dp/{i['asin']}"
+            return {"query": query, "results": items[:max_results]}
+        finally:
+            page.close()
+
     def screenshot(self, url):
         page = self.open(url)
         try:
@@ -140,6 +169,11 @@ class Handler(BaseHTTPRequestHandler):
                 res = BROWSER.search(q, int(body.get("max_results", 8)))
             elif self.path == "/fetch":
                 res = BROWSER.fetch(body.get("url"), int(body.get("max_chars", DEFAULT_CHARS)), bool(body.get("links")))
+            elif self.path == "/amazon":
+                q = (body.get("query") or "").strip()
+                if not q:
+                    raise BadRequest("query required")
+                res = BROWSER.amazon(q, int(body.get("max_results", 10)), body.get("domain", "amazon.com"))
             elif self.path == "/screenshot":
                 res = BROWSER.screenshot(body.get("url"))
             else:

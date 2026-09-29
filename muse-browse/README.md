@@ -27,9 +27,12 @@ MUSE_BROWSE_TOKEN=pick-a-long-random-string python3 server.py
 ```bash
 H='Authorization: Bearer pick-a-long-random-string'
 curl -s -H "$H" -d '{"query":"best 65W USB-C chargers 2026"}'  http://127.0.0.1:8793/search
+curl -s -H "$H" -d '{"query":"usb-c hub 7-in-1"}'                http://127.0.0.1:8793/amazon   # product links
 curl -s -H "$H" -d '{"url":"https://example.com","links":true}' http://127.0.0.1:8793/fetch
 curl -s -H "$H" -d '{"url":"https://example.com"}'              http://127.0.0.1:8793/screenshot
 ```
+
+If Amazon shows a captcha or asks you to sign in, do it once in that Chrome window and retry.
 
 ## Security notes
 
